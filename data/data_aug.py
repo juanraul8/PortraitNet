@@ -9,7 +9,8 @@ import base64
 import zlib
 import numpy as np
 from scipy.ndimage.filters import gaussian_filter
-from PIL import Image, ImageEnhance, ImageOps, ImageFile  
+from PIL import Image, ImageEnhance, ImageOps, ImageFile
+
 
 import sys
 sys.path.insert(0, '/home/dongx12/Data/cocoapi/PythonAPI/')
