@@ -1,5 +1,5 @@
-
 import os
+from timeit import default_timer as timer
 import cv2
 import numpy as np
 
@@ -9,9 +9,6 @@ from yaml import load
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-
-import matplotlib
-import matplotlib.pyplot as plt
 
 import sys
 sys.path.insert(0, 'model/')
@@ -75,8 +72,7 @@ def pred_single(model, exp_args, img_ori, prior=None):
     out = cv2.resize(out, (in_shape[1], in_shape[0]))
     return out, predimg
 
-# load model-1 or model-2: trained with two auxiliary losses (without prior channel)
-# config_path = '../config/model_mobilenetv2_with_two_auxiliary_losses.yaml'
+start_video = timer()
 
 # load model-3: trained with prior channel
 config_path = 'config/model_mobilenetv2_with_prior_channel.yaml'
@@ -124,8 +120,7 @@ exp_args.useUpsample = cf['useUpsample']
 # if exp_args.useDeconvGroup==True, set groups=input_channel in nn.ConvTranspose2d
 exp_args.useDeconvGroup = cf['useDeconvGroup']
 
-# print ('===========> loading model <===========')
-#import model_mobilenetv2_seg_small as modellib
+# ----------------------------------Loading the model-------------------------------------------------------------
 
 netmodel_video = modellib.MobileNetV2(n_class=2,
                                       useUpsample=exp_args.useUpsample,
@@ -137,8 +132,6 @@ netmodel_video = modellib.MobileNetV2(n_class=2,
                                       #video=exp_args.video).cuda()
                                       video=exp_args.video).cpu()
 
-
-#bestModelFile = os.path.join(exp_args.model_root, 'model_best.pth.tar')
 bestModelFile = 'mobilenetv2_total_with_prior_channel.tar'
 
 if os.path.isfile(bestModelFile):
@@ -149,28 +142,53 @@ if os.path.isfile(bestModelFile):
 else:
     print("=> no checkpoint found at '{}'".format(bestModelFile))
 
-img_ori = cv2.imread("original_face_0378.png")
-# mask_ori = cv2.imread("/home/dongx12/Data/EG1800/Labels/00457.png")
 
+data_folder = "/mnt/raid/juan/relight_dataset/pablo_palafox/faces"
+
+files = [x for x in os.listdir(data_folder) if x.endswith(".png")]
+paths = [""] * len(files)
+
+log_file = open('face_masks.txt', 'w')
+
+H, W = (256, 256)
 prior = None
-height, width, _ = img_ori.shape
 
-background = img_ori.copy()
-background = cv2.blur(background, (17,17))
+# Load files by index
+for file in files:
+    tokens = file.split(".")
 
-alphargb, pred = pred_single(netmodel_video, exp_args, img_ori, prior)
-plt.imshow(alphargb)
-plt.show()
-print alphargb.shape
+    id = int(tokens[0].split("e")[1])
+    path = os.path.join(data_folder, file)
 
-alphargb = cv2.cvtColor(alphargb, cv2.COLOR_GRAY2BGR)
-result = np.uint8(img_ori * alphargb + background * (1-alphargb))
+    img = cv2.imread(path)
 
-myImg = np.ones((height, width*2 + 20, 3)) * 255
-myImg[:, :width, :] = img_ori
-myImg[:, width+20:, :] = result
+    img = cv2.resize(img, (W, H))
 
-plt.imshow(myImg[:,:,::-1]/255)
-plt.yticks([])
-plt.xticks([])
-plt.show()
+    background = img.copy()
+    background = cv2.blur(background, (17,17))
+
+    #Model prediction
+
+    alphargb, pred = pred_single(netmodel_video, exp_args, img, prior)
+
+    #Binary Person Mask
+
+    face_mask = cv2.normalize(src=alphargb, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+    out_file = "/home/juan/PortraitNet/masks/mask_{:04d}.png".format(id)
+    cv2.imwrite(out_file, face_mask)
+
+    #Blur Background
+    alphargb = cv2.cvtColor(alphargb, cv2.COLOR_GRAY2BGR)
+    new_img = np.uint8(img * alphargb + background * (1-alphargb))
+
+    out_file = "/home/juan/PortraitNet/masks/face_{:04d}.png".format(id)
+    cv2.imwrite(out_file, new_img)
+
+    break
+
+end_video = timer()
+print("Processing time (s): {0}".format(end_video - start_video))
+
+# # Release resources
+log_file.close()
