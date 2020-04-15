@@ -17,6 +17,9 @@ sys.path.insert(0, 'data/')
 from data_aug import Normalize_Img, Anti_Normalize_Img
 import model_mobilenetv2_seg_small as modellib
 
+#device = 'cpu'
+device = 'cuda:0'
+
 def resize_padding(image, dstshape, padValue=0):
     height, width, _ = image.shape
     ratio = float(width)/height # ratio = (width:height)
@@ -61,10 +64,11 @@ def pred_single(model, exp_args, img_ori, prior=None):
     in_ = in_[np.newaxis, :, :, :]
 
     if exp_args.addEdge == True:
-        output_mask, output_edge = model(Variable(torch.from_numpy(in_)).cpu())
+        output_mask, output_edge = model(Variable(torch.from_numpy(in_)).to(device))
     else:
-        output_mask = model(Variable(torch.from_numpy(in_)).cpu())
+        output_mask = model(Variable(torch.from_numpy(in_)).to(device))
     prob = softmax(output_mask)
+
     pred = prob.data.cpu().numpy()
 
     predimg = pred[0].transpose((1, 2, 0))[:, :, 1]
@@ -121,7 +125,6 @@ exp_args.useUpsample = cf['useUpsample']
 exp_args.useDeconvGroup = cf['useDeconvGroup']
 
 # ----------------------------------Loading the model-------------------------------------------------------------
-
 netmodel_video = modellib.MobileNetV2(n_class=2,
                                       useUpsample=exp_args.useUpsample,
                                       useDeconvGroup=exp_args.useDeconvGroup,
@@ -129,13 +132,12 @@ netmodel_video = modellib.MobileNetV2(n_class=2,
                                       channelRatio=1.0,
                                       minChannel=16,
                                       weightInit=True,
-                                      #video=exp_args.video).cuda()
-                                      video=exp_args.video).cpu()
+                                      video=exp_args.video).to(device)
 
 bestModelFile = 'mobilenetv2_total_with_prior_channel.tar'
 
 if os.path.isfile(bestModelFile):
-    checkpoint_video = torch.load(bestModelFile, map_location=torch.device('cpu'))
+    checkpoint_video = torch.load(bestModelFile, map_location=torch.device(device))
     netmodel_video.load_state_dict(checkpoint_video['state_dict'])
     print ("minLoss: ", checkpoint_video['minLoss'], checkpoint_video['epoch'])
     print("=> loaded checkpoint '{}' (epoch {})".format(bestModelFile, checkpoint_video['epoch']))
@@ -144,6 +146,7 @@ else:
 
 
 data_folder = "/mnt/raid/juan/relight_dataset/pablo_palafox/faces"
+#data_folder = "/mnt/raid/juan/test_experiment/faces"
 
 files = [x for x in os.listdir(data_folder) if x.endswith(".png")]
 paths = [""] * len(files)
@@ -160,14 +163,13 @@ for file in files:
     id = int(tokens[0].split("e")[1])
     path = os.path.join(data_folder, file)
 
-    img = cv2.imread(path)
+    print ("Processing frame {:04d}".format(id))
 
+    img = cv2.imread(path)
     img = cv2.resize(img, (W, H))
 
     background = img.copy()
     background = cv2.blur(background, (17,17))
-
-    #Model prediction
 
     alphargb, pred = pred_single(netmodel_video, exp_args, img, prior)
 
@@ -182,10 +184,8 @@ for file in files:
     alphargb = cv2.cvtColor(alphargb, cv2.COLOR_GRAY2BGR)
     new_img = np.uint8(img * alphargb + background * (1-alphargb))
 
-    out_file = "/home/juan/PortraitNet/masks/face_{:04d}.png".format(id)
+    out_file = "/home/juan/PortraitNet/blur_faces/face_{:04d}.png".format(id)
     cv2.imwrite(out_file, new_img)
-
-    break
 
 end_video = timer()
 print("Processing time (s): {0}".format(end_video - start_video))
